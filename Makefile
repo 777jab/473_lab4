@@ -1,4 +1,4 @@
-PRG            =dim
+PRG            =rtc
 OBJ            = $(PRG).o
 
 MCU_TARGET     = atmega128
