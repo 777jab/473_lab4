@@ -1,5 +1,6 @@
 PRG            =rtc
-OBJ            = $(PRG).o
+#PRG            =bar_graph
+OBJ            = $(PRG).o hd44780.o
 
 MCU_TARGET     = atmega128
 OPTIMIZE       = -O2    # options are 1, 2, 3, s
@@ -65,4 +66,3 @@ esrec: $(PRG)_eeprom.srec
 
 %_eeprom.bin: %.elf
 	$(OBJCOPY) -j .eeprom --change-section-lma .eeprom=0 -O binary $< $@
-
