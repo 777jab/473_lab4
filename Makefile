@@ -1,4 +1,4 @@
-PRG            =rtc
+PRG            =main
 #PRG            =bar_graph
 OBJ            = $(PRG).o hd44780.o
 
