@@ -32,14 +32,21 @@ const uint8_t dec_to_7seg[12] = {
     0b01111111  //D.P.
 };
 volatile uint8_t mode = 0x00;//stores which mode the counter is in
+      // BIT  |      0     |    1     |   2   |    3    |
+      // MODE | alm_active | snoozing | t_set | alm_set |
 static uint8_t hr     = 0x00; 
 static uint8_t min    = 0x00; 
 static uint8_t sec    = 0x00;
 static uint8_t col    = 0x00; //keeps track of whether the colon is lit.
+static uint8_t alm_hr     = 0x00; 
+static uint8_t alm_min    = 0x00; 
+static uint8_t alm_sec    = 0x00;
+static uint8_t alm_col    = 0x00; 
 static uint8_t which_digit = 0;//keeps track of which digit is lit.
 static char    lcd_str[32];  //holds string to send to lcd  
 int16_t adc_result;     //holds adc result 
 static uint8_t alarm  = 0x00; //non-zero when the alarm is going off
+static uint8_t snooze_count = 0x00; //represents minutes left in snooze
 /* function prototypes */
 uint8_t debounce();
 void segsum(int16_t sum);
@@ -107,22 +114,79 @@ void read_adc(){
     OCR2 = adc_result;
 }
 void update_globals(uint8_t buttons, int8_t encoders){
-    if(buttons){ mode = buttons; }
-    if(encoders){ mode++; } 
-    if(buttons == 0x01) { lcd_str[16] = 'y'; }
-    if(buttons == 0x02) { alarm ^= 0x01; }
+    switch(buttons){
+        case (1<<0):// set alarm
+            mode ^= (1<<3);
+            break;
+        case (1<<1):// arm/disarm alarm
+            mode ^= (1<<0);
+            break;
+        case (1<<2):// snooze
+            mode ^= (1<<1);
+            break;
+        case (1<<3):// set time
+            mode ^= (1<<2);
+            break;
+    }
+    switch(encoders){
+        case(1)://hours--
+            if(mode & (1<<2)){ //if time set mode
+                if(hr == 0) hr = 23;
+                else hr--; 
+            }
+            else if(mode & (1<<3)){ //if alarm set mode
+                if(alm_hr == 0) alm_hr = 23;
+                else alm_hr--; 
+            }
+        break;
+        
+        case(2)://hours++
+            if(mode & (1<<2)){ //if time set mode
+                if(hr == 23) hr = 0;
+                else hr++;
+            }
+            else if(mode & (1<<3)){//if alarm set mode
+                if(alm_hr == 23) alm_hr = 0;
+                else alm_hr++;
+            }
+        break;        
+        
+        case(3)://min--
+            if(mode & (1<<2)){ //if time set mode
+                if(min == 0) min = 59;
+                else min--;
+            }
+            else if(mode & (1<<3)){ //if alarm set mode
+                if(alm_min == 0) alm_min = 59;
+                else alm_min--;
+            }
+        break;        
+        
+        case(4)://min++
+            if(mode & (1<<2)){ //if time set mode
+                if(min == 59) min = 0;
+                else min++;
+            }
+            else if(mode & (1<<3)){ //if alarm set mode
+                if(alm_min == 59) alm_min = 0;
+                else alm_min++;
+            }
+        break;        
+    }
 }
 void rtc(){
     static uint16_t count = 0;
-    count++;
-    if(count >= 511){ 
-        sec++; 
-        count = 0;
-        col ^= 1;
-    }   
-    if(sec >= 59)   { min++; sec = 0;} 
-    if(min >= 59)   { hr++; min = 0;} 
-    if(hr >= 23)    { hr = 0; }
+    if(! (mode & (1<<2))){//if we're not setting the time currently
+        count++;
+        if(count >= 511){ 
+            sec++; 
+            count = 0;
+            col ^= 1;
+        }   
+        if(sec >= 59)   { min++; sec = 0;} 
+        if(min >= 59)   { hr++; min = 0;} 
+        if(hr >= 23)    { hr = 0; }
+    }
 }
 
 uint8_t read_buttons(){
@@ -180,7 +244,7 @@ void init(){
     lcd_init();
     clear_display();
     cursor_home();
-    strcpy(lcd_str, "test text                       ");
+    strcpy(lcd_str, "                                ");
     /* set up the ADC */
     DDRF  &= ~(_BV(DDF0)); //make port F bit 0 is ADC input
     PORTF &= ~(_BV(PF0));  //port F bit 0 pullups must be off
