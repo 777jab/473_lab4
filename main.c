@@ -40,8 +40,6 @@ static uint8_t sec    = 0x00;
 static uint8_t col    = 0x00; //keeps track of whether the colon is lit.
 static uint8_t alm_hr     = 0x00; 
 static uint8_t alm_min    = 0x00; 
-static uint8_t alm_sec    = 0x00;
-static uint8_t alm_col    = 0x00; 
 static uint8_t which_digit = 0;//keeps track of which digit is lit.
 static char    lcd_str[32];  //holds string to send to lcd  
 int16_t adc_result;     //holds adc result 
@@ -120,6 +118,10 @@ void update_globals(uint8_t buttons, int8_t encoders){
             break;
         case (1<<1):// arm/disarm alarm
             mode ^= (1<<0);
+            if(mode & (1<<0)){ //if alarm is armed
+                strcpy(lcd_str, "ALARM ON                        ");
+            }
+            else strcpy(lcd_str, "ALARM OFF                       ");
             break;
         case (1<<2):// snooze
             mode ^= (1<<1);
@@ -128,6 +130,7 @@ void update_globals(uint8_t buttons, int8_t encoders){
             mode ^= (1<<2);
             break;
     }
+
     switch(encoders){
         case(1)://hours--
             if(mode & (1<<2)){ //if time set mode
@@ -338,6 +341,17 @@ int8_t read_encoder() {
 }//read_encoder
 
 uint8_t seg_time(){
+    if(mode & (1<<3)){ //if we're setting the alarm
+    /* colon */
+    segment_data[2] &= ~(0x03);
+    /* hours */
+    segment_data[4] = dec_to_7seg[ alm_hr / 10 ];
+    segment_data[3] = dec_to_7seg[ alm_hr % 10 ];
+    /* minutes */
+    segment_data[1] = dec_to_7seg[ alm_min / 10 ];
+    segment_data[0] = dec_to_7seg[ alm_min % 10 ];
+    }
+    else{
     /* colon */
     if(col){ segment_data[2] &= ~(0x03); }
     else{ segment_data[2] |= 0x03; }
@@ -347,6 +361,7 @@ uint8_t seg_time(){
     /* minutes */
     segment_data[1] = dec_to_7seg[ min / 10 ];
     segment_data[0] = dec_to_7seg[ min % 10 ];
+    }
     return 0;
 }
 
