@@ -112,7 +112,7 @@ ISR(TIMER1_COMPA_vect){
         if(beep){ PORTE ^= (1<<5); }
         count++;
         if(count >= 2000) { count = 0; beep ^= 1; } //toggle beep every
-        //half second
+                                                    //half second
     }
 }
 
@@ -221,10 +221,8 @@ void update_globals(uint8_t buttons, int8_t encoders){
 }
 
 /***********************************************************************
-*                           update_globals
-* This function is called regularly by an ISR and keeps track of the
-* time. It also keeps track of how long the alarm has been going off 
-* and/or how long the user has been snoozing.
+*                                rtc 
+* This function is called by an ISR and keeps track of time.
 ***********************************************************************/
 void rtc(){
     static uint16_t count = 0;
@@ -405,7 +403,7 @@ int8_t read_encoder() {
 }//read_encoder
   
 /***********************************************************************
-*                               init 
+*                              seg_time 
 * This function figures out what to display on the 7-seg based on what
 * time it is, when the alarm is set to go off, and what mode the clock
 * is in.
