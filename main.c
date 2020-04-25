@@ -1,5 +1,8 @@
 /***********************************************************************
  * main.c
+ *
+ * Joshua Barksdale
+ *
  * This program implements an alarm clock. It outputs to the 7-seg,
  * the bar graph, the LCD screen, and some speakers. It takes input from
  * the buttons, the encoders, and a photocell.
@@ -13,7 +16,6 @@
 #include "hd44780.h"
 
 /* global vars */
-
 //holds data to be sent to the segments. logic zero turns segment on
 static uint8_t segment_data[5] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 //decimal to 7-segment LED display encodings, logic "0" turns on segment
@@ -34,17 +36,20 @@ const uint8_t dec_to_7seg[12] = {
 volatile uint8_t mode = 0x00;//stores which mode the counter is in
       // BIT  |      0     |    1     |   2   |    3    |
       // MODE | alm_active | snoozing | t_set | alm_set |
+//time keeping:
 static uint8_t hr     = 0x00; 
 static uint8_t min    = 0x00; 
 static uint8_t sec    = 0x00;
 static uint8_t col    = 0x00; //keeps track of whether the colon is lit.
+//alarm time
 static uint8_t alm_hr     = 0x00; 
 static uint8_t alm_min    = 0x00; 
+static uint8_t alm_timr  = 0x00; //represents minutes left in alarm
+static uint8_t snooze_timr = 0x00; //represents seconds left in snooze
+//display control
 static uint8_t which_digit = 0;//keeps track of which digit is lit.
 static char    lcd_str[32];  //holds string to send to lcd  
 int16_t adc_result;     //holds adc result 
-static uint8_t alarm  = 0x00; //non-zero when the alarm is going off
-static uint8_t snooze_count = 0x00; //represents minutes left in snooze
 /* function prototypes */
 uint8_t debounce();
 void segsum(int16_t sum);
@@ -57,6 +62,11 @@ void spi_init(void);
 void read_adc();
 
 /* function definitions */
+/***********************************************************************
+*                           spi_init 
+*
+* This function sets up SPI for communication with the LCD screen
+***********************************************************************/
 void spi_init(void){
     /* Run this code before attempting to write to the LCD.*/
     DDRF  |= 0x08;  //port F bit 3 is enable for LCD
@@ -90,8 +100,13 @@ ISR(TIMER0_COMP_vect){
     read_adc();//reads adc and adjusts brightness accordingly
 }
 
+/***********************************************************************
+*                    timer 1 interrupt service routine
+*
+* This ISR makes the alarm beep at the appropriate time 
+***********************************************************************/
 ISR(TIMER1_COMPA_vect){
-    if(alarm){
+    if(alm_timr && !(snooze_timr)){
         static uint8_t beep = 0;
         static uint16_t count = 0;
         if(beep){ PORTE ^= (1<<5); }
@@ -101,6 +116,13 @@ ISR(TIMER1_COMPA_vect){
     }
 }
 
+/***********************************************************************
+*                           read_adc
+*
+* This function reads the voltage of port F bit 0 and uses that value
+* to set the output compare register of timer/counter 2. This
+* implements auto-dimming of the 7-seg and bar graph.
+***********************************************************************/
 void read_adc(){
     ADCSRA |= (1<<ADSC);//poke ADSC and start conversion
     while(bit_is_clear(ADCSRA,ADIF));//wait for conversion to finish
@@ -111,23 +133,43 @@ void read_adc(){
     if(adc_result > 0xF0) {adc_result = 0xF0;}//result
     OCR2 = adc_result;
 }
+
+/***********************************************************************
+*                           update_globals
+* This function takes the most recent value pulled from the buttons and
+* encoders and it takes appropriate action based on that input. Mostly
+* it changes the value of global variables (hence the name).
+***********************************************************************/
 void update_globals(uint8_t buttons, int8_t encoders){
     switch(buttons){
         case (1<<0):// set alarm
-            mode ^= (1<<3);
+            if(!(mode & (1<<2))){//if we're not in time set mode
+                mode ^= (1<<3);
+            }
             break;
         case (1<<1):// arm/disarm alarm
             mode ^= (1<<0);
             if(mode & (1<<0)){ //if alarm is armed
                 strcpy(lcd_str, "ALARM ON                        ");
             }
-            else strcpy(lcd_str, "ALARM OFF                       ");
+            else {
+                strcpy(lcd_str, "ALARM OFF                       ");
+                alm_timr = 0;
+                snooze_timr = 0;
+                mode &= ~(1<<1);//turn off snooze indicator
+            }
             break;
         case (1<<2):// snooze
-            mode ^= (1<<1);
+            if(alm_timr){
+                mode |= (1<<1);
+                alm_timr = 5;
+                snooze_timr = 10;
+            }
             break;
         case (1<<3):// set time
-            mode ^= (1<<2);
+            if(!(mode & (1<<3))){//if we're not in alarm set mode
+                mode ^= (1<<2);
+            }
             break;
     }
 
@@ -177,6 +219,13 @@ void update_globals(uint8_t buttons, int8_t encoders){
         break;        
     }
 }
+
+/***********************************************************************
+*                           update_globals
+* This function is called regularly by an ISR and keeps track of the
+* time. It also keeps track of how long the alarm has been going off 
+* and/or how long the user has been snoozing.
+***********************************************************************/
 void rtc(){
     static uint16_t count = 0;
     if(! (mode & (1<<2))){//if we're not setting the time currently
@@ -185,13 +234,29 @@ void rtc(){
             sec++; 
             count = 0;
             col ^= 1;
+            if(snooze_timr) snooze_timr--;
         }   
-        if(sec >= 59)   { min++; sec = 0;} 
+        if(sec >= 59)   { 
+            min++; 
+            sec = 0;
+            if(alm_timr) alm_timr--;
+        } 
         if(min >= 59)   { hr++; min = 0;} 
         if(hr >= 23)    { hr = 0; }
+        if((mode & 1<<0) && //alarm is armed && 
+                alm_hr == hr && //it's time to go off
+                alm_min == min &&
+                sec == 0){
+            alm_timr = 5;//tell the alarm to go off for 5 min
+        }
     }
 }
 
+/***********************************************************************
+*                          read_buttons 
+* This function takes user input from the button board with a debounce
+* and returns it as a uint8_t
+***********************************************************************/
 uint8_t read_buttons(){
     static uint8_t temp = 0;
     static uint8_t buttons = 0;
@@ -214,7 +279,6 @@ uint8_t read_buttons(){
 }
 /***********************************************************************
 *                               init 
-*
 * This function performs all the setup required to run the program. It
 * sets port modes and innitial values, enables interrupts, sets up
 * timer/counter 0, and sets up serial communication.
@@ -339,7 +403,13 @@ int8_t read_encoder() {
     }
     return 0;//report no turning
 }//read_encoder
-
+  
+/***********************************************************************
+*                               init 
+* This function figures out what to display on the 7-seg based on what
+* time it is, when the alarm is set to go off, and what mode the clock
+* is in.
+***********************************************************************/
 uint8_t seg_time(){
     if(mode & (1<<3)){ //if we're setting the alarm
     /* colon */
